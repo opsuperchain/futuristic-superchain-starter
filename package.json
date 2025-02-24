@@ -8,12 +8,16 @@
     "test": "test"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "supersim": "supersim --interop.autorelay"
   },
   "author": "",
   "license": "ISC",
-  "dependencies": {
+  "devDependencies": {
     "@superchain/js": "^0.0.16",
-    "supersim": "^0.1.0-alpha.42"
+    "@types/node": "^22.13.5",
+    "supersim": "^0.0.7",
+    "viem": "^2.0.0",
+    "vitest": "^1.2.1"
   }
 }
