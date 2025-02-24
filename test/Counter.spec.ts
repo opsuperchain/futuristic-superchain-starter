@@ -3,6 +3,16 @@ import { StandardSuperConfig, SuperWallet, getSuperContract } from '@superchain/
 import { keccak256, toHex, stringToHex } from 'viem'
 import CounterArtifact from '../out/Counter.sol/Counter.json'
 
+// Helper to poll until a condition is met or timeout
+async function pollUntil(condition: () => Promise<boolean>, timeout: number = 10000, interval: number = 500): Promise<boolean> {
+  const start = Date.now()
+  while (Date.now() - start < timeout) {
+    if (await condition()) return true
+    await new Promise(resolve => setTimeout(resolve, interval))
+  }
+  return false
+}
+
 describe('Counter', () => {
   // Configure chain with supersim port
   const config = new StandardSuperConfig({
@@ -74,20 +84,18 @@ describe('Counter', () => {
     const tx = await counter.sendTx(901, 'incrementOnChain', [902])
     console.log('Cross-chain increment initiated, tx:', tx.transactionHash)
 
-    // Wait a bit for cross-chain message to be processed
-    await new Promise(resolve => setTimeout(resolve, 2000))
-
-    // Get new values
-    const newValue901 = await counter.call(901, 'number')
-    const newValue902 = await counter.call(902, 'number')
-    console.log('New values - Chain 901:', newValue901, 'Chain 902:', newValue902)
-
-    // Verify chain 902 was incremented
-    if (Number(newValue902) !== Number(initialValue902) + 1) {
-      throw new Error(`Counter on chain 902 did not increment correctly. Expected ${Number(initialValue902) + 1}, got ${newValue902}`)
+    // Poll until chain 902 value is updated
+    const expectedValue = Number(initialValue902) + 1
+    const valueUpdated = await pollUntil(async () => {
+      const newValue = await counter.call(902, 'number')
+      return Number(newValue) === expectedValue
+    })
+    if (!valueUpdated) {
+      throw new Error(`Timed out waiting for chain 902 value to update to ${expectedValue}`)
     }
 
     // Verify chain 901 remained unchanged
+    const newValue901 = await counter.call(901, 'number')
     if (Number(newValue901) !== Number(initialValue901)) {
       throw new Error(`Counter on chain 901 should not have changed. Expected ${initialValue901}, got ${newValue901}`)
     }
@@ -104,17 +112,16 @@ describe('Counter', () => {
       }
     })
 
-    // Wait a bit longer for events to be processed
-    await new Promise(resolve => setTimeout(resolve, 5000))
+    // Poll until we find the event
+    const eventFound = await pollUntil(async () => foundEvent)
     unsubscribe()
-
-    // Verify we got the event with the correct value
-    if (!foundEvent) {
-      throw new Error('No CrossChainIncrementSuccess event found')
+    
+    if (!eventFound) {
+      throw new Error('Timed out waiting for CrossChainIncrementSuccess event')
     }
 
-    if (eventValue === undefined || Number(eventValue) !== Number(newValue902)) {
-      throw new Error(`Event has wrong value. Expected ${newValue902}, got ${eventValue}`)
+    if (eventValue === undefined || Number(eventValue) !== expectedValue) {
+      throw new Error(`Event has wrong value. Expected ${expectedValue}, got ${eventValue}`)
     }
   })
 })
