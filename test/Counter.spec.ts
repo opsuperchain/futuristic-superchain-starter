@@ -1,5 +1,6 @@
 import { describe, it, beforeAll } from 'vitest'
 import { StandardSuperConfig, SuperWallet, getSuperContract } from '@superchain/js'
+import { keccak256, toHex, stringToHex } from 'viem'
 import CounterArtifact from '../out/Counter.sol/Counter.json'
 
 describe('Counter', () => {
@@ -70,7 +71,8 @@ describe('Counter', () => {
 
     // Initiate cross-chain increment from 901 to 902
     console.log('Initiating cross-chain increment from 901 to 902...')
-    await counter.sendTx(901, 'incrementOnChain', [902])
+    const tx = await counter.sendTx(901, 'incrementOnChain', [902])
+    console.log('Cross-chain increment initiated, tx:', tx.transactionHash)
 
     // Wait a bit for cross-chain message to be processed
     await new Promise(resolve => setTimeout(resolve, 2000))
@@ -88,6 +90,31 @@ describe('Counter', () => {
     // Verify chain 901 remained unchanged
     if (Number(newValue901) !== Number(initialValue901)) {
       throw new Error(`Counter on chain 901 should not have changed. Expected ${initialValue901}, got ${newValue901}`)
+    }
+
+    // Get events from chain 901 to verify the callback was executed
+    let foundEvent = false
+    let eventValue: bigint | undefined
+    const eventHash = keccak256(stringToHex('CrossChainIncrementSuccess(uint256)'))
+    const unsubscribe = counter.watchEvents(901, BigInt(tx.blockNumber), (log, block) => {
+      if (log.topics[0] === eventHash) {
+        foundEvent = true
+        eventValue = BigInt(log.data)
+        console.log('Found CrossChainIncrementSuccess event with value:', eventValue, 'at block:', block.number)
+      }
+    })
+
+    // Wait a bit longer for events to be processed
+    await new Promise(resolve => setTimeout(resolve, 5000))
+    unsubscribe()
+
+    // Verify we got the event with the correct value
+    if (!foundEvent) {
+      throw new Error('No CrossChainIncrementSuccess event found')
+    }
+
+    if (eventValue === undefined || Number(eventValue) !== Number(newValue902)) {
+      throw new Error(`Event has wrong value. Expected ${newValue902}, got ${eventValue}`)
     }
   })
 })
